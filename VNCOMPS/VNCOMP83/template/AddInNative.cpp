@@ -43,16 +43,13 @@ static const WCHAR_T g_kClassNames[] =
 static IAddInDefBase* pAsyncEvent = NULL;
 
 uint32_t convToShortWchar(WCHAR_T** Dest, const wchar_t* Source,
-                          size_t len = 0);
-uint32_t convToShortWchar2(WCHAR_T** Dest, const wchar_t* Source,
-                          size_t len = 0);     
+                          size_t len = 0);   
 uint32_t convFromShortWchar(wchar_t** Dest, const WCHAR_T* Source,
                             uint32_t len = 0);
 uint32_t getLenShortWcharStr(const WCHAR_T* Source);
 
 std::unique_ptr<UdpServer> server = nullptr;
 static bool is_server_running = false;
-std::mutex server_mutex;
 std::mutex server_running_mutex;
 std::atomic<bool> server_running(false);
 
@@ -343,9 +340,9 @@ bool CAddInNative::CallAsFunc(const long lMethodNum, tVariant* pvarRetValue,
       if (pvarRetValue) {
         if (server != nullptr){
            auto message = getFirstMessageFromServer();
-          setPvarRetValue2(message, pvarRetValue);
+          setPvarRetValue(message, pvarRetValue);
         } else {
-          setPvarRetValue2("non", pvarRetValue);
+          setPvarRetValue(u8"non", pvarRetValue);
         }
       }
       return true;
@@ -411,7 +408,6 @@ void CAddInNative::startUdpServer() const {
   std::string adress(m_pAdressProp, m_pAdressProp + wcslen(m_pAdressProp));
   if (server != nullptr) {
     server->stop();
-    // Умный указатель сам освободит память
   }
 
   bool success = false;
@@ -472,8 +468,8 @@ bool CAddInNative::isRunning() {
 void CAddInNative::setPvarRetValue(const std::string& messageVal,
                                    tVariant* pvarRetValue) {                                                                                                                      
   // Преобразование из UTF-8 в wide string (wstring)
-  std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> q;
-  std::wstring ws_allMessage = q.from_bytes(messageVal);
+  std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
+  std::wstring ws_allMessage = converter.from_bytes(messageVal);
   const wchar_t* wchar_ptr = ws_allMessage.c_str();
   size_t iActualSize = ::wcslen(wchar_ptr);
 
@@ -486,22 +482,6 @@ void CAddInNative::setPvarRetValue(const std::string& messageVal,
     }
   }
 }
-void CAddInNative::setPvarRetValue2(const std::string &messageVal, tVariant *pvarRetValue)
-{
-  std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> q;
-  std::wstring ws_allMessage = q.from_bytes(messageVal);
-  const wchar_t* wchar_ptr = ws_allMessage.c_str();
-  size_t iActualSize = ::wcslen(wchar_ptr);
-
-  TV_VT(pvarRetValue) = VTYPE_PWSTR;
-  if (m_iMemory) {
-    if (m_iMemory->AllocMemory((void**)&(pvarRetValue->pwstrVal),
-                               iActualSize * sizeof(WCHAR_T))) {
-      ::convToShortWchar2(&(pvarRetValue->pwstrVal), wchar_ptr, iActualSize);
-      pvarRetValue->wstrLen = iActualSize;
-    }
-  }
-}
 //---------------------------------------------------------------------------//
 // Получение сообщения.
 std::string CAddInNative::getFirstMessageFromServer() {
@@ -509,75 +489,6 @@ std::string CAddInNative::getFirstMessageFromServer() {
     return server->getFirstMessage();
   }
   return u8"non";
-}
-// String to Wstring
-std::wstring  CAddInNative::utf_8_to_utf_32(const std::string& str)
-{   
-    std::string tmp = convertToUTF8(str);      
-    iconv_t cd = iconv_open("UTF-32LE", "UTF-8");
-    if (cd == (iconv_t)-1) {
-        return L"Error: Failed to initialize iconv." + std::wstring(strerror(errno), strerror(errno) + strlen(strerror(errno))); // Отчет об ошибке
-    }
-
-    size_t in_size = tmp.size();
-    size_t out_size = in_size * 4;  // Для UTF-32 всегда 4 байта на символ, 8 - test
-
-    std::vector<char> out_buffer(out_size);
-
-    char* in_buf = const_cast<char*>(tmp.data());
-    char* out_buf = out_buffer.data();
-
-    size_t result = iconv(cd, &in_buf, &in_size, &out_buf, &out_size);
-    if (result == (size_t)-1) {
-        iconv_close(cd);
-        return L"Error: Conversion failed." + std::wstring(strerror(errno), strerror(errno) + strlen(strerror(errno))); // Отчет об ошибке
-    }
-
-    iconv_close(cd);
-
-    // Переводим выходной буфер в std::wstring
-    size_t wchar_count = (out_buffer.size() - out_size) / 4;  // Количество символов в UTF-32
-    return std::wstring(reinterpret_cast<wchar_t*>(out_buffer.data()), wchar_count);
-}
-std::string CAddInNative::detectEncoding(const std::string &input)
-{
-    uchardet_t handle = uchardet_new();
-    if (!handle) {
-        return u8"Error: при создании uchardet_t";
-    }
-
-    // Передаем данные в uchardet для определения кодировки
-    uchardet_handle_data(handle, input.data(), input.size());
-    uchardet_data_end(handle);
-
-    const char* encoding = uchardet_get_charset(handle);
-
-    // Получаем кодировку (если она не была определена, вернем "unknown")
-    std::string detected_encoding = (encoding) ? encoding : "unknown";
-
-    uchardet_delete(handle);
-    return detected_encoding;
-}
-std::string CAddInNative::convertToUTF8(const std::string &input)
-{
-    try {
-        // Определяем кодировку
-        std::string encoding = detectEncoding(input);
-
-        // Если кодировка неизвестна, возвращаем ошибку
-        if (encoding == "unknown") {
-            return u8"Error: не удалось определить кодировку.";
-        }
-
-        // Преобразуем строку в UTF-8 с использованием boost::locale
-        return boost::locale::conv::to_utf<char>(input.data(), encoding);
-    } catch (const boost::locale::conv::conversion_error& e) {
-        // Если произошла ошибка конвертации, возвращаем строку с описанием ошибки
-        return u8"Error: " + std::string(e.what());
-    } catch (const std::exception& e) {
-        // Обрабатываем другие возможные исключения
-        return u8"Error: " + std::string(e.what());
-    }
 }
 //---------------------------------------------------------------------------//
 long CAddInNative::findName(const wchar_t* names[], const wchar_t* name,
@@ -593,33 +504,6 @@ long CAddInNative::findName(const wchar_t* names[], const wchar_t* name,
 }
 //---------------------------------------------------------------------------//
 uint32_t convToShortWchar(WCHAR_T** Dest, const wchar_t* Source, size_t len) {
-  if (!len) len = ::wcslen(Source) + 1;
-  if (!*Dest) *Dest = new WCHAR_T[len];
-
-  WCHAR_T* tmpShort = *Dest;
-  wchar_t* tmpWChar = (wchar_t*)Source;
-  uint32_t res = 0;
-
-  ::memset(*Dest, 0, len * sizeof(WCHAR_T));
-
-#if defined(__linux__) || defined(__APPLE__)
-  size_t succeed = (size_t)-1;
-  size_t f = len * sizeof(wchar_t), t = len * sizeof(WCHAR_T);
-  const char* fromCode = sizeof(wchar_t) == 2 ? "UTF-16" : "UTF-32";
-  iconv_t cd = iconv_open("UTF-16LE", fromCode);
-  if (cd != (iconv_t)-1) {
-    succeed = iconv(cd, (char**)&tmpWChar, &f, (char**)&tmpShort, &t);
-    iconv_close(cd);
-    if (succeed != (size_t)-1) return (uint32_t)succeed;
-  }
-#endif
-  for (; len; --len, ++res, ++tmpWChar, ++tmpShort) {
-    *tmpShort = (WCHAR_T)*tmpWChar;
-  }
-  return res;
-}
-uint32_t convToShortWchar2(WCHAR_T **Dest, const wchar_t *Source, size_t len)
-{
   if (!len) len = ::wcslen(Source) + 1;
   if (!*Dest) *Dest = new WCHAR_T[len];
 

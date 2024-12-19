@@ -71,11 +71,7 @@ private:
     void stopUdpServer();        // Остановка сервера
     bool isRunning();  // Метод для проверки состояния работы сервера
     void setPvarRetValue(const std::string& messageVal, tVariant* pvarRetValue); // Убираем дублирование кода
-    void setPvarRetValue2(const std::string& messageVal, tVariant* pvarRetValue); // Убираем дублирование кода
     std::string getFirstMessageFromServer(); // Получение первого сообщения из пула сообщений
-    std::wstring utf_8_to_utf_32(const std::string& str); // Конвертация из string в wstring
-    std::string detectEncoding(const std::string& input); // Функция для определения кодировки строки с использованием uchardet
-    std::string convertToUTF8(const std::string& input); // Функция для конвертации строки в UTF-8 с проверкой кодировки
  
     // Attributes
     IAddInDefBase* m_iConnect;
