@@ -76,6 +76,7 @@ void UdpServer::run() {
         try {
             io_service_.run();
         } catch (const std::exception& e) {
+            //
         }
     });
     server_thread.detach();
@@ -87,7 +88,9 @@ void UdpServer::stop() {
         io_service_.stop();
         socket_.close();
     } catch (const boost::system::system_error& e) {
+        //
     } catch (const std::exception& e) {
+        //
     }
 }
 
